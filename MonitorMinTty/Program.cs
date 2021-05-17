@@ -12,6 +12,7 @@ namespace MonitorMinTty
     {
         static Regex gitDirRegex = new Regex(@"(?<=gitdir:\s+)[^\s]+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
         static Regex gitHeadRegex = new Regex(@"(?<=ref:\s+refs/heads/)[^\s]+", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        static Regex gitHashRegex = new Regex(@"^[0-9a-f]{40}$");
 
         [DllImport("user32.dll")]
         static extern int SetWindowText(IntPtr hWnd, string text);
@@ -42,7 +43,7 @@ namespace MonitorMinTty
                         var dir = ProcessUtilities.GetCurrentDirectory(entry.Key);
                         if (Directory.Exists(dir))
                         {
-                            Console.WriteLine("setting dir");
+                            Trace.WriteLine("setting dir");
                             var gitBranch = GetGitBranch(dir);
                             if (gitBranch != null)
                             {
@@ -104,12 +105,16 @@ namespace MonitorMinTty
                 return dir;
             }
 
+            var gitHeadFiletext = "";
             if (gitStatus == GitStatus.Directory)
             {
                 var headFile = Path.Combine(current, ".git", "HEAD");
-                var text = File.ReadLines(headFile).First().Trim();
-                var match = gitHeadRegex.Match(text);
-                if (match.Success) return match.Value;
+                gitHeadFiletext = File.ReadAllText(headFile).Trim();
+                var branch = GetBranchFromHead(gitHeadFiletext);
+                if (!string.IsNullOrEmpty(branch))
+                {
+                    return branch;
+                }
             }
             else if (gitStatus == GitStatus.File)
             {
@@ -119,13 +124,29 @@ namespace MonitorMinTty
                 if (match.Success)
                 {
                     var headFile = Path.Combine(match.Value, "HEAD");
-                    var text2 = File.ReadAllText(headFile);
-                    var match2 = gitHeadRegex.Match(text2);
-                    if (match2.Success) return match2.Value;
+                    gitHeadFiletext = File.ReadAllText(headFile).Trim();
+                    var branch = GetBranchFromHead(gitHeadFiletext);
+                    if (!string.IsNullOrEmpty(branch))
+                    {
+                        return branch;
+                    }
                 }
             }
 
             return dir;
+        }
+
+        private static string GetBranchFromHead(string gitHeadFiletext)
+        {
+            var match = gitHeadRegex.Match(gitHeadFiletext);
+            if (match.Success) return match.Value;
+
+            // check for "detached-head" state - in that case the HEAD file will contain
+            // just a hash.
+            match = gitHashRegex.Match(gitHeadFiletext);
+            if (match.Success) return match.Value;
+
+            return null;
         }
     }
 }
